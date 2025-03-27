@@ -639,6 +639,8 @@ class SequenceDataset(IterableDataset):
         seq_len (int): Length of sequence to use for training.
         reward_scale (float): Scaling factor for reward values.
         cost_scale (float): Scaling factor for cost values.
+        
+        Augmentation params:
         deg (int): Degree of polynomial used for Pareto frontier augmentation.
         pf_sample (bool): Whether to sample data from the Pareto frontier.
         max_rew_decrease (float): Maximum reward decrease for Pareto frontier augmentation.
@@ -671,6 +673,7 @@ class SequenceDataset(IterableDataset):
         seq_len: int = 10,
         reward_scale: float = 1.0,
         cost_scale: float = 1.0,
+
         deg: int = 3,
         pf_sample: bool = False,
         max_rew_decrease: float = 1.0,
