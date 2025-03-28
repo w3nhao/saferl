@@ -76,7 +76,7 @@ class ConformalCalculator:
                 )
             
             # Calculate weights for distribution shift
-            weight = calculate_weight(state, state_target_batch, 
+            weight = calculate_weight(state, 
                                       self.config.scaler,
                                       self.nt_total,
                                       Q, 
@@ -85,7 +85,7 @@ class ConformalCalculator:
                                       self.w_safe, 
                                       self.guidance_scaler)
             if self.config.finetune_set == 'train' and self.config.use_guidance:
-                weight = weight * calculate_weight(state, state_target_batch, 
+                weight = weight * calculate_weight(state, 
                                                     self.config.scaler,
                                                     self.nt_total,
                                                     Q, 
@@ -96,7 +96,6 @@ class ConformalCalculator:
             if self.config.finetune_set == 'test' and not self.config.wo_post_train:
                 weight = weight * calculate_weight(state, 
                                                     self.config.scaler,
-                                                    state_target_batch, 
                                                     self.config.nt_total, 
                                                     self.config.finetune_quantile, 
                                                     self.config.safety_threshold, 

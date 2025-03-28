@@ -3,7 +3,6 @@ import torch
 import pdb
 import time
 from configs.inference_config import InferenceConfig
-from utils.common import get_target
 from utils.metrics import calculate_safety_score
 
 class GradientGuidance:
@@ -13,7 +12,6 @@ class GradientGuidance:
         self,
         data: dict,
         scaler: torch.Tensor,
-        target_i: List[int],
         w_obj: float = 0,
         w_safe: float = 0,
         guidance_scaler: float = 1.0,
@@ -30,7 +28,6 @@ class GradientGuidance:
         self.guidance_scaler = guidance_scaler
         self.Q = Q
         self.safety_threshold = safety_threshold
-        self.state_target = get_target(target_i, device=device, data=self.data, scaler=self.scaler, split=mode)
         self.nt = nt
 
     def calculate_loss(self, x: torch.Tensor) -> torch.Tensor:
@@ -38,22 +35,12 @@ class GradientGuidance:
         args: x: [B, channel, padded_time], scaled
         return: [B]
         """
-        x = x * self.scaler.to(x.device)
-        state = x[:, :3, :self.nt]
+        x = x[:, :, :self.nt] * self.scaler.to(x.device)
+        objective = - x[:, -2, :].mean(-1)
 
-        beta_p_final = state[:, 0, :]
-        l_i_final = state[:, 2, :]
-
-        beta_p_final_gt = self.state_target[:, 0, :]
-        l_i_final_gt = self.state_target[:, 2, :]
-        
-        objective_beta_p = (beta_p_final - beta_p_final_gt).square().mean(-1)
-        objective_l_i = (l_i_final - l_i_final_gt).square().mean(-1)
-        objective = objective_beta_p + objective_l_i
-
-        s = calculate_safety_score(state)
+        s = calculate_safety_score(x)
         safe_cost = torch.maximum(
-            self.safety_threshold - s + self.Q,
+            s + self.Q - self.safety_threshold,
             torch.zeros_like(s)
         )
 
@@ -80,7 +67,6 @@ def get_gradient_guidance(
     x: torch.Tensor,
     data: dict,
     scaler: torch.Tensor,
-    target_i: List[int],
     w_obj: float = 0,
     w_safe: float = 0,
     guidance_scaler: float = 1.0,
@@ -93,7 +79,6 @@ def get_gradient_guidance(
     return GradientGuidance(
         data=data,
         scaler=scaler,
-        target_i=target_i,
         w_obj=w_obj,
         w_safe=w_safe,
         guidance_scaler=guidance_scaler,
@@ -103,7 +88,7 @@ def get_gradient_guidance(
         safety_threshold=safety_threshold,
     )(x)
 
-def calculate_weight(x: torch.Tensor, state_target: torch.Tensor, scaler: torch.Tensor,
+def calculate_weight(x: torch.Tensor, scaler: torch.Tensor,
                      nt: int, Q: float, safety_threshold: float,
                      w_obj: float, w_safe: float, guidance_scaler: float) -> torch.Tensor:
     """
@@ -112,22 +97,12 @@ def calculate_weight(x: torch.Tensor, state_target: torch.Tensor, scaler: torch.
         state_target: [B, state_dim, time], original, GPU
     return: [B]
     """
-    x = x * scaler.to(x.device)
-    state = x[:, :3, :nt]
+    x = x[:, :, :nt] * scaler.to(x.device)
+    objective = - x[:, -2, :].mean(-1)
 
-    beta_p_final = state[:, 0, :]
-    l_i_final = state[:, 2, :]
-
-    beta_p_final_gt = state_target[:, 0, :]
-    l_i_final_gt = state_target[:, 2, :]
-    
-    objective_beta_p = (beta_p_final - beta_p_final_gt).square().mean(-1)
-    objective_l_i = (l_i_final - l_i_final_gt).square().mean(-1)
-    objective = objective_beta_p + objective_l_i
-
-    s = calculate_safety_score(state)
+    s = calculate_safety_score(x)
     safe_cost = torch.maximum(
-        safety_threshold - s + Q,
+        s + Q - safety_threshold,
         torch.zeros_like(s)
     )
 

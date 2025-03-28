@@ -19,7 +19,7 @@ class TrainConfig:
     checkpoint_interval: int = 1000      # Save checkpoint every N steps
     lr: float = 1e-5                      # Learning rate for training
     scaler: List[float] = (1,)
-    
+
     # Dataset settings
     task: str = "OfflinePointPush1Gymnasium-v0"    # Dataset name for training
     outliers_percent: float = None

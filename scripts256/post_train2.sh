@@ -1,20 +1,18 @@
-cd tokamak_new
-
 # Default values
-EXP_ID="hidden_dim_256"
-TUNING_DIR='total'
+EXP_ID="point_goal1_256"
+TASK="OfflinePointGoal1Gymnasium-v0"
+TUNING_DIR="${EXP_ID}_finetune"
 GPU_ID=0
-CHECKPOINT=190
+CHECKPOINT=90
 DDIM_SAMPLING_STEPS=200
 TRAIN_BATCH_SIZE=32
-LOSS_WEIGHTS='{"loss_train": 1.0, "loss_test": 0.0}'
-GUIDANCE_WEIGHTS='{"w_obj": 0.0, "w_safe": 1.0}'
+GUIDANCE_WEIGHTS='{"w_obj": 1.0, "w_safe": 1.0}'
 
 # Define the range of values for CHECKPOINT and GUIDANCE_SCALER
 GUIDANCE_SCALER_VALUES=(10)
 FINETUNE_STEPS_VALUES=(1)
 FINETUNE_EPOCH_VALUES=(12)
-FINETUNE_LR_VALUES=(8e-6)
+FINETUNE_LR_VALUES=(1e-5)
 ALPHA_VALUES=(0.9)
 
 
@@ -36,6 +34,7 @@ for ALPHA in "${ALPHA_VALUES[@]}"; do
                     echo "DDIM sampling steps: $DDIM_SAMPLING_STEPS"
 
                     python run_inference.py \
+                        --task "$TASK" \
                         --gpu_id "$GPU_ID" \
                         --exp_id "$EXP_ID" \
                         --tuning_dir "$TUNING_DIR" \
@@ -45,7 +44,7 @@ for ALPHA in "${ALPHA_VALUES[@]}"; do
                         --finetune_steps "$FINETUNE_STEPS" \
                         --finetune_lr "$FINETUNE_LR" \
                         --guidance_weights "$GUIDANCE_WEIGHTS" \
-                        --loss_weights "$LOSS_WEIGHTS" \
+                        --loss_weights '{"loss_train": 1.0, "loss_test": 0.0}' \
                         --guidance_scaler "$GUIDANCE_SCALER" \
                         --train_batch_size "$TRAIN_BATCH_SIZE" \
                         --ddim_sampling_steps "$DDIM_SAMPLING_STEPS" \

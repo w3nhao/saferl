@@ -1,10 +1,11 @@
 import os
 import json
 import torch
+import numpy as np
 from typing import Dict, Optional, Tuple
 import logging
 import time
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from datetime import datetime
 from torch.utils.data import DataLoader
 from itertools import cycle
@@ -13,10 +14,12 @@ from data.dataset import SequenceDataset
 from configs.inference_config import InferenceConfig
 from .conformal import ConformalCalculator
 from .utils import get_scheduler
-from utils.common import get_target
 from utils.guidance import calculate_weight, get_gradient_guidance, normalize_weights
-from utils.metrics import evaluate_samples, control_trajectories, calculate_safety_score
 
+import dsrl
+import gymnasium as gym
+
+from IPython import embed
 
 class InferencePipeline:
     """Main pipeline class for inference and fine-tuning
@@ -33,7 +36,6 @@ class InferencePipeline:
         self.model = model.to(self.config.device)
         
         # setup data
-        self.setup_data()
         if "Metadrive" in config.task:
             import gym
         import gymnasium as gym  # noqa
@@ -59,7 +61,10 @@ class InferencePipeline:
                                     rbins=rbins,
                                     max_npb=max_npb,
                                     min_npb=min_npb)
+        
+        self.env = env
         self.max_action = env.action_space.high[0]
+        self.setup_data()
         
         # Initialize optimizer
         self.setup_optimizer()
@@ -75,104 +80,6 @@ class InferencePipeline:
         # Initialize quantile value
         self.Q = 0  # Initialize quantile
         
-    def evaluate(self):
-        """
-        Evaluates the performance of the model on a number of episodes.
-        """
-        self.model.eval()
-        episode_rets, episode_costs, episode_lens = [], [], []
-        for _ in trange(self.config.eval_episodes, desc="Evaluating...", leave=False):
-            epi_ret, epi_len, epi_cost = self.rollout(self.model, self.env)
-            episode_rets.append(epi_ret)
-            episode_lens.append(epi_len)
-            episode_costs.append(epi_cost)
-        self.model.train()
-        return np.mean(episode_rets) / self.reward_scale, np.mean(
-            episode_costs) / self.cost_scale, np.mean(episode_lens)
-
-    @torch.no_grad()
-    def rollout(
-        self,
-        model: CDT,
-        env: gym.Env,
-        target_return: float,
-        target_cost: float,
-    ) -> Tuple[float, float]:
-        """
-        Evaluates the performance of the model on a single episode.
-        """
-        states = torch.zeros(1,
-                             model.episode_len + 1,
-                             model.state_dim,
-                             dtype=torch.float,
-                             device=self.device)
-        actions = torch.zeros(1,
-                              model.episode_len,
-                              model.action_dim,
-                              dtype=torch.float,
-                              device=self.device)
-        returns = torch.zeros(1,
-                              model.episode_len + 1,
-                              dtype=torch.float,
-                              device=self.device)
-        costs = torch.zeros(1,
-                            model.episode_len + 1,
-                            dtype=torch.float,
-                            device=self.device)
-        time_steps = torch.arange(model.episode_len,
-                                  dtype=torch.long,
-                                  device=self.device)
-        time_steps = time_steps.view(1, -1)
-
-        obs, info = env.reset()
-        states[:, 0] = torch.as_tensor(obs, device=self.device)
-        returns[:, 0] = torch.as_tensor(target_return, device=self.device)
-        costs[:, 0] = torch.as_tensor(target_cost, device=self.device)
-
-        epi_cost = torch.tensor(np.array([target_cost]),
-                                dtype=torch.float,
-                                device=self.device)
-
-        # cannot step higher than model episode len, as timestep embeddings will crash
-        episode_ret, episode_cost, episode_len = 0.0, 0.0, 0
-        for step in range(self.config.episode_len):
-            # first select history up to step, then select last seq_len states,
-            # step + 1 as : operator is not inclusive, last action is dummy with zeros
-            # (as model will predict last, actual last values are not important) # fix this noqa!!!
-            s = states[:, :step + 1][:, -model.seq_len:]  # noqa
-            a = actions[:, :step + 1][:, -model.seq_len:]  # noqa
-            r = returns[:, :step + 1][:, -model.seq_len:]  # noqa
-            c = costs[:, :step + 1][:, -model.seq_len:]  # noqa
-            t = time_steps[:, :step + 1][:, -model.seq_len:]  # noqa
-
-            acts, _, _ = model(s, a, r, c, t, None, epi_cost)
-            if self.stochastic:
-                acts = acts.mean
-            acts = acts.clamp(-self.max_action, self.max_action)
-            act = acts[0, -1].cpu().numpy()
-            # act = self.get_ensemble_action(1, model, s, a, r, c, t, epi_cost)
-
-            obs_next, reward, terminated, truncated, info = env.step(act)
-            if self.cost_reverse:
-                cost = (1.0 - info["cost"]) * self.cost_scale
-            else:
-                cost = info["cost"] * self.cost_scale
-            # at step t, we predict a_t, get s_{t + 1}, r_{t + 1}
-            actions[:, step] = torch.as_tensor(act)
-            states[:, step + 1] = torch.as_tensor(obs_next)
-            returns[:, step + 1] = torch.as_tensor(returns[:, step] - reward)
-            costs[:, step + 1] = torch.as_tensor(costs[:, step] - cost)
-
-            obs = obs_next
-
-            episode_ret += reward
-            episode_len += 1
-            episode_cost += info["cost"]
-
-            if terminated or truncated:
-                break
-
-        return episode_ret, episode_len, episode_cost
 
     def setup_data(self):
         """Setup datasets and dataloaders"""
@@ -189,7 +96,6 @@ class InferencePipeline:
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.config.train_batch_size,
-            shuffle=True,
             num_workers=16,
             pin_memory=True
         )
@@ -203,7 +109,6 @@ class InferencePipeline:
         #     batch_size=4096,
         #     num_workers=32,
         #     pin_memory=True,
-        #     shuffle=False
         # )
         # targets = []
         # for batch, idx in loader:
@@ -214,8 +119,7 @@ class InferencePipeline:
         # Calibration dataset
         self.cal_dataset = SequenceDataset(
             self.data,
-            reward_scale=self.config.reward_scale,
-            cost_scale=self.config.cost_scale,
+            scaler=self.config.scaler,
             split="cal",
             is_normalize=True,
             is_need_idx=True,
@@ -223,7 +127,6 @@ class InferencePipeline:
         self.cal_loader = DataLoader(
             self.cal_dataset,
             batch_size=self.config.cal_batch_size,
-            shuffle=False,
             num_workers=4,
             pin_memory=True
         )
@@ -236,7 +139,6 @@ class InferencePipeline:
         #     batch_size=4096,
         #     num_workers=32,
         #     pin_memory=True,
-        #     shuffle=False
         # )
         # targets = []
         # for batch, idx in loader:
@@ -245,6 +147,20 @@ class InferencePipeline:
         # logging.info(f"Cal targets cached, shape: {self.cal_targets.shape}, time: {time.time() - start:.2f}s")
         
         # # Test dataset
+        self.test_dataset = []
+        for i in trange(self.config.eval_episodes, desc="Evaluating...", leave=False):
+            obs, info = self.env.reset(seed = i) # state_channel
+            self.test_dataset.append(obs)
+        self.test_dataset = torch.tensor(np.stack(self.test_dataset)) / self.config.scaler[:obs.shape[-1]].reshape(1, -1)
+
+        self.test_loader = DataLoader(
+            (self.test_dataset, range(len(self.test_dataset))),
+            batch_size=self.config.test_batch_size,
+            num_workers=4,
+            shuffle=False,
+            pin_memory=True
+        )
+
         # self.test_dataset = SequenceDataset(
         #     self.data,
         #     scaler=self.config.scaler,
@@ -255,7 +171,6 @@ class InferencePipeline:
         # self.test_loader = DataLoader(
         #     self.test_dataset,
         #     batch_size=self.config.test_batch_size,
-        #     shuffle=False,
         #     num_workers=4,
         #     pin_memory=True
         # )
@@ -267,7 +182,6 @@ class InferencePipeline:
         #     batch_size=4096,
         #     num_workers=32,
         #     pin_memory=True,
-        #     shuffle=False
         # )
         # targets = []
         # for batch, idx in loader:
@@ -299,7 +213,6 @@ class InferencePipeline:
         self.guidance_fn = lambda x: get_gradient_guidance(x, 
             data=self.data,
             scaler=self.config.scaler,
-            target_i=list(range(self.config.n_test_samples)),
             w_obj=self.config.guidance_weights["w_obj"],
             w_safe=self.config.guidance_weights["w_safe"],
             guidance_scaler=self.config.guidance_scaler,
@@ -317,17 +230,10 @@ class InferencePipeline:
         batch_size = data_loader.batch_size
         n_samples = len(data_loader.dataset)
         
-        if mode == "train":
-            state_target = self.train_targets.to(self.device)
-        else:
-            state_target = self.test_targets.to(self.device)
-        
         for i, (state, idx) in tqdm(enumerate(data_loader), desc="Getting finetune reweights"):
             state = state.to(self.device)
             idx = idx.to(self.device)
-            state_target_batch = state_target[idx]
             weight = calculate_weight(state, 
-                                    state_target_batch, 
                                     self.config.scaler,
                                     self.config.nt_total, 
                                     self.Q, 
@@ -341,27 +247,19 @@ class InferencePipeline:
 
         return normalized_weights
 
-    def finetune_step(self, train_state, prediction, reweights_train, reweights_test):
+    def finetune_step(self, train_state, reweights_train):
         """design loss function and finetune model with weighted loss
         """
         self.model.train()
         train_state, prediction = train_state.to(self.device), prediction.to(self.device)
-        reweight_train, reweight_test = reweights_train.to(self.device), reweights_test.to(self.device)
+        reweight_train = reweights_train.to(self.device)
 
         # Calculate loss based on training set
         loss_diff_train = self.model(train_state, mean=False)
         loss_train = (reweight_train * loss_diff_train).mean()
         loss_train.backward()
 
-        # Calculate loss based on test sampling
-        if self.config.loss_weights['loss_test'] > 0:
-            loss_diff_test = self.model(prediction, mean=False)
-            loss_test = (reweight_test * loss_diff_test).mean()
-        else: 
-            loss_diff_test = torch.zeros_like(reweight_test)
-            loss_test = torch.tensor(0.)
-
-        loss = self.config.loss_weights['loss_train'] * loss_train + self.config.loss_weights['loss_test'] * loss_test
+        loss = self.config.loss_weights['loss_train'] * loss_train
 
         # logging.info(f"Diff loss: {loss_diff_train.mean().item():.4f}, {loss_diff_test.mean().item():.4f}")
 
@@ -375,21 +273,12 @@ class InferencePipeline:
         """
         self.model.train()
 
-        state = prediction[:, :3, :self.config.nt_total]
-
-        beta_p_final = state[:, 0, :]
-        l_i_final = state[:, 2, :]
-
-        beta_p_final_gt = state_target[:, 0, :]
-        l_i_final_gt = state_target[:, 2, :]
-        
-        objective_beta_p = (beta_p_final - beta_p_final_gt).square().mean(-1)
-        objective_l_i = (l_i_final - l_i_final_gt).square().mean(-1)
-        objective = objective_beta_p + objective_l_i
+        state = prediction[:, :, :self.config.nt_total]
+        objective = - prediction[:, -2, :].mean(-1)
 
         s = calculate_safety_score(state)
         safe_cost = torch.maximum(
-            self.config.safety_threshold - s + self.Q,
+            s + self.Q - self.config.safety_threshold,
             torch.zeros_like(s)
         )
 
@@ -417,7 +306,7 @@ class InferencePipeline:
 
         if not self.config.backward_finetune:
             reweights_training = self.get_finetune_reweights(self.train_loader, mode="train")
-            reweights_test = self.get_finetune_reweights(self.test_loader, mode="test")
+            # reweights_test = self.get_finetune_reweights(self.test_loader, mode="test")
             logging.info(f"Reweights calculated")
 
         all_prediction = []
@@ -434,7 +323,7 @@ class InferencePipeline:
             for finetune_step in range(self.config.finetune_steps):
                 if not self.config.backward_finetune:
                     train_batch, sim_id = next(self.train_loader_iter)
-                    batch_loss = self.finetune_step(train_batch, prediction, reweights_training[sim_id], reweights_test)
+                    batch_loss = self.finetune_step(train_batch, reweights_training[sim_id])
                 else:
                     batch_loss = self.backward_finetune_step(prediction, state_target_batch)
                 train_metrics.append(batch_loss)
@@ -470,29 +359,37 @@ class InferencePipeline:
         all_predictions = []
         
         self.model.eval()
+        episode_rets, episode_costs, episode_lens = [], [], []
         with torch.no_grad():
-            for test_state, idx in self.test_loader:
-                test_state = test_state.to(self.device)
-                
+            for i in trange(self.config.eval_episodes, desc="Evaluating...", leave=False):
+                obs, info = self.env.reset(seed = i)
                 # Generate samples
                 # CHOICE: None or self.guidance_fn. reweighted loss can replace guidance
-                predictions = self.inference(test_state)
-                
+                state = torch.tensor(obs.reshape(1, -1)) / self.config.scaler[:obs.shape[-1]].reshape(1, -1)
+                predictions = self.inference(state)
                 all_predictions.append(predictions)
-        
+    
+                epi_ret, epi_len, epi_cost = self.rollout(self.model, predictions)
+                episode_rets.append(epi_ret)
+                episode_lens.append(epi_len)
+                episode_costs.append(epi_cost)
+                # state_controlled = control_trajectories(predictions, self.config.nt_total, self.config.seed)
+
         # Concatenate all results
         predictions = torch.cat(all_predictions)
-        state_controlled = control_trajectories(predictions, self.config.nt_total, self.config.seed)
-        state_target = get_target(list(range(self.config.n_test_samples)), data=self.data, scaler=self.config.scaler, 
-                                is_normalize=False).to(self.config.device)
-        
-        metrics = evaluate_samples(
-            predictions, 
-            state_controlled, 
-            state_target, 
-            self.config.safety_threshold,
-            self.test_dataset
-        )
+
+        metrics= {} 
+        metrics['return'] = np.mean(episode_rets) / self.config.reward_scale
+        metrics['cost'] = np.mean(episode_costs) / self.config.cost_scale
+        metrics['length'] = np.mean(episode_lens)
+
+        # metrics = evaluate_samples(
+        #     predictions, 
+        #     state_controlled, 
+        #     state_target, 
+        #     self.config.safety_threshold,
+        #     self.test_dataset
+        # )
         
         logging.info("Evaluation completed")
         return metrics
@@ -522,7 +419,7 @@ class InferencePipeline:
         Returns:
             Tuple[torch.Tensor, Dict]: Predictions and metrics
         """ 
-        state = state.to(self.device)
+        state = torch.as_tensor(state, device=self.device)
         # Get w
         if self.config.use_guidance:
             nablaJ=self.guidance_fn
@@ -533,7 +430,7 @@ class InferencePipeline:
             clip_denoised=True,
             guidance_u0=True,
             device=self.device,
-            u_init=state[:, :self.config.state_channel, 0],
+            u_init=state,
             nablaJ=nablaJ,  
             J_scheduler=self.J_scheduler,
             w_scheduler=self.w_scheduler,
@@ -542,7 +439,90 @@ class InferencePipeline:
         pred = output * self.config.scaler.to(self.device)
 
         return pred
-    
+
+
+    @torch.no_grad()
+    def rollout(
+        self,
+        model,
+        predictions: torch.Tensor
+    ) -> Tuple[float, float]:
+        """
+        Evaluates the performance of the model on a single episode.
+        """
+        # states = torch.zeros(1,
+        #                      model.episode_len + 1,
+        #                      model.state_dim,
+        #                      dtype=torch.float,
+        #                      device=self.device)
+        # actions = torch.zeros(1,
+        #                       model.episode_len,
+        #                       model.action_dim,
+        #                       dtype=torch.float,
+        #                       device=self.device)
+        # returns = torch.zeros(1,
+        #                       model.episode_len + 1,
+        #                       dtype=torch.float,
+        #                       device=self.device)
+        # costs = torch.zeros(1,
+        #                     model.episode_len + 1,
+        #                     dtype=torch.float,
+        #                     device=self.device)
+        # time_steps = torch.arange(model.episode_len,
+        #                           dtype=torch.long,
+        #                           device=self.device)
+        # time_steps = time_steps.view(1, -1)
+
+        # obs, info = env.reset()
+        # states[:, 0] = torch.as_tensor(obs, device=self.device)
+        # returns[:, 0] = torch.as_tensor(target_return, device=self.device)
+        # costs[:, 0] = torch.as_tensor(target_cost, device=self.device)
+
+        # epi_cost = torch.tensor(np.array([target_cost]),
+        #                         dtype=torch.float,
+        #                         device=self.device)
+
+        # cannot step higher than model episode len, as timestep embeddings will crash
+        episode_ret, episode_cost, episode_len = 0.0, 0.0, 0
+        for step in range(self.config.episode_len):
+            # first select history up to step, then select last seq_len states,
+            # step + 1 as : operator is not inclusive, last action is dummy with zeros
+            # (as model will predict last, actual last values are not important) # fix this noqa!!!
+            # s = states[:, :step + 1][:, -model.seq_len:]  # noqa
+            # a = actions[:, :step + 1][:, -model.seq_len:]  # noqa
+            # r = returns[:, :step + 1][:, -model.seq_len:]  # noqa
+            # c = costs[:, :step + 1][:, -model.seq_len:]  # noqa
+            # t = time_steps[:, :step + 1][:, -model.seq_len:]  # noqa
+
+            # acts, _, _ = model(s, a, r, c, t, None, epi_cost)
+            # if self.stochastic:
+            #     acts = acts.mean
+            acts = predictions[0, self.config.state_channel:-2, step]
+            acts = acts.clamp(-self.max_action, self.max_action)
+            act = acts.cpu().numpy()
+
+            obs_next, reward, terminated, truncated, info = self.env.step(act)
+            if self.cost_reverse:
+                cost = (1.0 - info["cost"]) * self.config.cost_scale
+            else:
+                cost = info["cost"] * self.config.cost_scale
+            # # at step t, we predict a_t, get s_{t + 1}, r_{t + 1}
+            # actions[:, step] = torch.as_tensor(act)
+            # states[:, step + 1] = torch.as_tensor(obs_next)
+            # returns[:, step + 1] = torch.as_tensor(returns[:, step] - reward)
+            # costs[:, step + 1] = torch.as_tensor(costs[:, step] - cost)
+
+            # obs = obs_next
+
+            episode_ret += reward
+            episode_len += 1
+            episode_cost += info["cost"]
+
+            if terminated or truncated:
+                break
+
+        return episode_ret, episode_len, episode_cost
+
     def run(self) -> Dict:
         """Run multiple training epochs and record results"""
         # Setup finetune directory

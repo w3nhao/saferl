@@ -64,40 +64,40 @@ def load_config(path: str) -> Dict[str, Any]:
     with open(path, 'r') as f:
         return yaml.safe_load(f) 
     
-def get_target(
-    target_i: Union[int, List[int]], 
-    device: Optional[torch.device] = None,
-    data: Optional[dict] = None,
-    scaler: Optional[torch.Tensor] = None,
-    is_normalize: bool = False,
-    split: str = "test"
-) -> torch.Tensor:
-    """Get target trajectory from test dataset
+# def get_target(
+#     target_i: Union[int, List[int]], 
+#     device: Optional[torch.device] = None,
+#     data: Optional[dict] = None,
+#     scaler: Optional[torch.Tensor] = None,
+#     is_normalize: bool = False,
+#     split: str = "test"
+# ) -> torch.Tensor:
+#     """Get target trajectory from test dataset
     
-    Args:
-        is_normalize: guidance->False, eval->False
-    Returns:
-        target: Target trajectory, shape (batch, state_dim, time)
-    """
-    dataset = SequenceDataset(
-        data,
-        scaler=scaler,
-        split='train',
-        is_normalize=is_normalize
-    )
+#     Args:
+#         is_normalize: guidance->False, eval->False
+#     Returns:
+#         target: Target trajectory, shape (batch, state_dim, time)
+#     """
+#     dataset = SequenceDataset(
+#         data,
+#         scaler=scaler,
+#         split='train',
+#         is_normalize=is_normalize
+#     )
     
-    if isinstance(target_i, int):
-        target = dataset[target_i]
-        target = target.unsqueeze(0)
-    else:
-        target = torch.stack([dataset[i] for i in target_i], dim=0)
+#     if isinstance(target_i, int):
+#         target = dataset[target_i]
+#         target = target.unsqueeze(0)
+#     else:
+#         target = torch.stack([dataset[i] for i in target_i], dim=0)
     
-    state_target = target[:, :3, :dataset.nt_total]
+#     state_target = target[:, :3, :dataset.nt_total]
     
-    if device is not None:
-        state_target = state_target.to(device)
+#     if device is not None:
+#         state_target = state_target.to(device)
     
-    return state_target
+#     return state_target
 
 def build_model(config: Union[EvalConfig, InferenceConfig], 
                 dataset: SequenceDataset,

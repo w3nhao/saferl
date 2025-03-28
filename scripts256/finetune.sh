@@ -1,5 +1,3 @@
-cd tokamak_new
-
 # Default values
 EXP_ID='hidden_dim_256'
 TUNING_DIR='finetune'

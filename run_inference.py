@@ -6,9 +6,10 @@ from datetime import datetime
 import os
 
 from data.dataset import SequenceDataset
-from configs.inference_config import get_inference_config
+from configs.inference_config import InferenceConfig, TASK_CONFIG
 from inference.pipeline import InferencePipeline
 from utils.common import set_seed, setup_logging, load_model
+from dsrl.infos import DENSITY_CFG
 
 def main():
     parser = argparse.ArgumentParser()
@@ -16,7 +17,8 @@ def main():
     parser.add_argument('--exp_id', type=str, default="turbo", help='Experiment ID')
     parser.add_argument('--tuning_dir', type=str, default="finetune", help='Tuning directory')
     parser.add_argument('--tuning_id', type=str, default="test", help='Tuning ID')
-    parser.add_argument('--model_size', type=str, default="large", help='Model size')
+    parser.add_argument('--task', type=str, default='OfflinePointPush1Gymnasium-v0', help='Task')
+    parser.add_argument('--dim', type=int, default=256, help='Model dimension')
     parser.add_argument('--checkpoint', type=int, required=True, help='Checkpoint to use')
     parser.add_argument('--checkpoint_dir', type=str, default="checkpoints", help='Checkpoint directory')
     parser.add_argument('--post_train_id', type=str, default="total", help='Post train ID')
@@ -38,38 +40,23 @@ def main():
     args = parser.parse_args()
 
     # basic config
-    config = get_inference_config(model_size=args.model_size, tuning_id='test')
+    config = TASK_CONFIG[args.task]()
 
-    # update command line arguments
-    config.checkpoint = args.checkpoint 
-    config.checkpoint_dir = args.checkpoint_dir
-    config.wo_post_train = args.wo_post_train
-    config.post_train_id = args.post_train_id
-    config.exp_id = args.exp_id
-    config.tuning_dir = args.tuning_dir
-    config.tuning_id = args.tuning_id
-    config.gpu_id = args.gpu_id
-
-    config.finetune_set = args.finetune_set
     if args.finetune_set == 'test':
         config.finetune_steps = 1
-    config.use_guidance = args.use_guidance
     if args.finetune_set == 'test' and args.use_guidance == False:
         args.guidance_scaler = 0
-    config.guidance_scaler = args.guidance_scaler
-    config.backward_finetune = args.backward_finetune
     if args.loss_weights:
         config.loss_weights = json.loads(args.loss_weights)
     if args.guidance_weights:
         config.guidance_weights = json.loads(args.guidance_weights)
-    config.alpha = args.alpha
-    config.finetune_epoch = args.finetune_epoch
-    config.finetune_steps = args.finetune_steps
-    config.finetune_lr = args.finetune_lr
-    config.train_batch_size = args.train_batch_size
-    config.cal_batch_size = args.cal_batch_size
-    config.ddim_sampling_steps = args.ddim_sampling_steps
-    config.ddim_eta = args.ddim_eta
+
+    for attr in ['checkpoint', 'checkpoint_dir', 'wo_post_train', 'post_train_id', 
+                'exp_id', 'tuning_dir', 'tuning_id', 'gpu_id', 'dim', 'finetune_set',
+                'alpha', 'finetune_epoch', 'finetune_steps', 'finetune_lr', 
+                'train_batch_size', 'cal_batch_size', 'ddim_sampling_steps', 'ddim_eta',
+                'use_guidance', 'guidance_scaler', 'backward_finetune']:
+        setattr(config, attr, getattr(args, attr))
 
     config.scaler = torch.tensor(config.scaler).reshape(-1, 1)
 

@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Tuple
 from pathlib import Path
 
 @dataclass
@@ -11,18 +11,30 @@ class InferenceConfig:
   
     """
     # Experiment settings
-    tuning_dir: str
-    tuning_id: str
+    tuning_dir: str = "finetune"
+    tuning_id: str = "1"
     exp_id: str = "turbo_MultiScaler"
     seed: int = 42
     gpu_id: int = 0
     device: str = "cuda"
     
     # Dataset settings
+    task: str = "OfflinePointPush1Gymnasium-v0"    # Dataset name for training
+    outliers_percent: float = None
+    noise_scale: float = None
+    inpaint_ranges: Tuple[Tuple[float, float], ...] = None
+    epsilon: float = None
+    density: float = 1.0
     nt_total: int = 1000
     pad_size: int = 1024
     safety_threshold: float = 0
+    reward_scale: float = 0.1
+    cost_scale: float = 1
 
+    # evaluation params
+    target_returns: Tuple[Tuple[float, ...],
+                          ...] = ((450.0, 10), (500.0, 20), (550.0, 50))  # reward, cost
+    cost_limit: int = 10
     eval_episodes: int = 20
     test_batch_size: int = 20
 
@@ -112,27 +124,94 @@ class InferenceConfig:
         if self.dim_mults is None:
             self.dim_mults = [1, 2, 4, 8]
 
-def get_inference_config(model_size: str = "large", exp_id: str = "turbo", tuning_dir: str = "finetune", tuning_id: str = "test") -> InferenceConfig:
-    """Get evaluation configuration"""
-    if model_size == "large":
-        return InferenceConfig(
-            exp_id=exp_id,
-            tuning_dir=tuning_dir,
-            tuning_id=tuning_id,
-            dim=256,
-            dim_mults=(1, 2, 4, 8),
-            train_num_steps=200000,
-            ddim_eta=1.0,
-            ddim_sampling_steps=200,
-        )
-    elif model_size == "turbo":
-        return InferenceConfig(
-            exp_id=exp_id,
-            tuning_dir=tuning_dir,
-            tuning_id=tuning_id,
-            dim=128,
-            dim_mults=(1, 2, 4, 8),
-            train_num_steps=200000,
-            ddim_eta=1.0,
-            ddim_sampling_steps=200,
-        )
+# def get_inference_config(model_size: str = "large", exp_id: str = "turbo", tuning_dir: str = "finetune", tuning_id: str = "test") -> InferenceConfig:
+#     """Get evaluation configuration"""
+#     if model_size == "large":
+#         return InferenceConfig(
+#             exp_id=exp_id,
+#             tuning_dir=tuning_dir,
+#             tuning_id=tuning_id,
+#             dim=512,
+#             dim_mults=(1, 2, 4, 8),
+#         )
+#     elif model_size == "turbo":
+#         return InferenceConfig(
+#             exp_id=exp_id,
+#             tuning_dir=tuning_dir,
+#             tuning_id=tuning_id,
+#             dim=256,
+#             dim_mults=(1, 2, 4, 8),
+#         )
+
+
+
+@dataclass
+class CarGoal1Config(InferenceConfig):
+    # model params
+    episode_len: int = 1000
+    # training params
+    task: str = "OfflineCarGoal1Gymnasium-v0"
+    state_channel: int = 72
+    scaler: List[float] = (18, 21, 53,  0.5,  1.5,  0.5,  4,  4,
+         4,  0.5000,  0.5000,  0.2, 16, 14, 15,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1.2000,  1)
+    target_returns: Tuple[Tuple[float, ...], ...] = ((40.0, 20), (40.0, 40), (40.0, 80))
+    gpu_id: int = 2
+    exp_id: str = "car_goal1"
+    state_channel: int = 72
+
+@dataclass
+class PointGoal1Config(InferenceConfig):
+    # model params
+    episode_len: int = 1000
+    # training params
+    task: str = "OfflinePointGoal1Gymnasium-v0"
+    state_channel: int = 60
+    scaler: List[float] = (6, 20,  10,  2,  1.5,  1.0000,  1.0000,  1.0000,
+         4,  0.5000,  0.5000,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         1,  1,  1,  1,  1,  1,  1.2,  1)
+    target_returns: Tuple[Tuple[float, ...], ...] = ((30.0, 20), (30.0, 40), (30.0, 80))
+    gpu_id: int = 4
+    exp_id: str = "point_goal1"
+
+
+@dataclass
+class PointPush1Config(InferenceConfig):
+    # model params
+    episode_len: int = 1000
+    # training params
+    task: str = "OfflinePointPush1Gymnasium-v0"
+    state_channel: int = 76
+    scaler: List[float] = (135,  82,   10,   1.5,   1,   1,   1,
+          1,   4,   0.5000,   0.5000,   1,   1,   1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+          1,  1,  1,  1,  1,  1,  1,
+         1,   1.2,  1)
+    target_returns: Tuple[Tuple[float, ...], ...] = ((15.0, 20), (15.0, 40), (15.0, 80))
+    gpu_id: int = 5
+    exp_id: str = "point_push1"
+
+TASK_CONFIG = {
+    "OfflineCarGoal1Gymnasium-v0": CarGoal1Config,
+    "OfflinePointGoal1Gymnasium-v0": PointGoal1Config,
+    "OfflinePointPush1Gymnasium-v0": PointPush1Config,
+}

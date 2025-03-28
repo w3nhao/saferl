@@ -141,8 +141,12 @@ class SequenceDataset(IterableDataset):
 
         self.state_channel = self.dataset[0]["observations"].shape[1]
         self.nt_total = self.dataset[0]["observations"].shape[0]
-        self.shape = self.__prepare_sample(0).shape
-
+        if self.is_need_idx:
+            sample, _ = self.__prepare_sample(0)
+            self.shape = sample.shape
+        else:
+            self.shape = self.__prepare_sample(0).shape
+            
     def compute_pareto_return(self, cost):
         return self.pareto_frontier(cost)
 
