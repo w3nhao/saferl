@@ -389,7 +389,7 @@ class InferencePipeline:
         predictions = torch.cat(all_predictions)
 
         metrics= {} 
-        normalized_ret, normalized_cost = env.get_normalized_score(np.mean(episode_rets) / self.config.reward_scale, \
+        normalized_ret, normalized_cost = self.env.get_normalized_score(np.mean(episode_rets) / self.config.reward_scale, \
                                         np.mean(episode_costs) / self.config.cost_scale)
         metrics['return'] = normalized_ret
         metrics['cost'] = normalized_cost
