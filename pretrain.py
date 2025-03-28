@@ -94,7 +94,8 @@ def train(config: TrainConfig):
     # initialize environment
     if "Metadrive" in config.task:
         import gym
-    import gymnasium as gym  # noqa
+    else:
+        import gymnasium as gym  # noqa
     env = gym.make(config.task)
 
     data = env.get_dataset()

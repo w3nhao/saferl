@@ -8,6 +8,7 @@ import os
 from data.dataset import SequenceDataset
 from configs.inference_config import InferenceConfig, TASK_CONFIG
 from inference.pipeline import InferencePipeline
+from dsrl.infos import DENSITY_CFG
 from utils.common import set_seed, setup_logging, load_model
 from dsrl.infos import DENSITY_CFG
 
@@ -76,7 +77,8 @@ def main():
     
     if "Metadrive" in config.task:
         import gym
-    import gymnasium as gym  # noqa
+    else:
+        import gymnasium as gym  # noqa
     env = gym.make(config.task)
 
     data = env.get_dataset()
