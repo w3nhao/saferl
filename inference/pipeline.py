@@ -17,10 +17,38 @@ from .utils import get_scheduler
 from utils.guidance import calculate_weight, get_gradient_guidance, normalize_weights
 from utils.metrics import calculate_safety_score
 
-from dsrl.offline_env import OfflineEnvWrapper, wrap_env  # noqa
+from dsrl.offline_env import wrap_env, OfflineEnv  # noqa
 import gymnasium as gym
 
 from IPython import embed
+
+from dsrl.infos import DENSITY_CFG
+
+
+class MyOfflineEnvWrapper(gym.Wrapper, OfflineEnv):
+    """
+    Wrapper class for offline RL envs.
+    """
+
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+        self.noise_scale = None
+
+    def reset(self, seed=None):
+        obs, info = self.env.reset(seed=seed)
+        if self.noise_scale is not None:
+            obs += np.random.normal(0, self.noise_scale, obs.shape)
+        return obs, info
+
+    def set_noise_scale(self, noise_scale):
+        self.noise_scale = noise_scale
+
+    def step(self, action):
+        obs_next, reward, terminated, truncated, info = self.env.step(action)
+        if self.noise_scale is not None:
+            obs_next += np.random.normal(0, self.noise_scale, obs_next.shape)
+        return obs_next, reward, terminated, truncated, info
+
 
 class InferencePipeline:
     """Main pipeline class for inference and fine-tuning
@@ -39,7 +67,8 @@ class InferencePipeline:
         # setup data
         if "Metadrive" in config.task:
             import gym
-        import gymnasium as gym  # noqa
+        else:
+            import gymnasium as gym  # noqa
         env = gym.make(config.task)
 
         data = env.get_dataset()
@@ -68,7 +97,7 @@ class InferencePipeline:
             env=gym.make(config.task),
             reward_scale=config.reward_scale,
         )
-        env = OfflineEnvWrapper(env)
+        env = MyOfflineEnvWrapper(env)
         env.set_target_cost(config.cost_limit)
         self.env = env
 
