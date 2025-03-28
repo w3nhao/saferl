@@ -27,6 +27,7 @@ class TrainConfig:
     inpaint_ranges: Tuple[Tuple[float, float], ...] = None
     epsilon: float = None
     density: float = 1.0
+    cost_reverse: bool = False
 
     # evaluation params
     target_returns: Tuple[Tuple[float, ...],

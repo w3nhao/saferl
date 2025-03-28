@@ -15,6 +15,7 @@ from configs.inference_config import InferenceConfig
 from .conformal import ConformalCalculator
 from .utils import get_scheduler
 from utils.guidance import calculate_weight, get_gradient_guidance, normalize_weights
+from utils.metrics import calculate_safety_score
 
 import dsrl
 import gymnasium as gym
@@ -96,6 +97,7 @@ class InferencePipeline:
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.config.train_batch_size,
+            shuffle=False,
             num_workers=16,
             pin_memory=True
         )
@@ -127,6 +129,7 @@ class InferencePipeline:
         self.cal_loader = DataLoader(
             self.cal_dataset,
             batch_size=self.config.cal_batch_size,
+            shuffle=False,
             num_workers=4,
             pin_memory=True
         )
@@ -154,7 +157,7 @@ class InferencePipeline:
         self.test_dataset = torch.tensor(np.stack(self.test_dataset)) / self.config.scaler[:obs.shape[-1]].reshape(1, -1)
 
         self.test_loader = DataLoader(
-            (self.test_dataset, range(len(self.test_dataset))),
+            torch.utils.data.TensorDataset(self.test_dataset, torch.arange(len(self.test_dataset))),
             batch_size=self.config.test_batch_size,
             num_workers=4,
             shuffle=False,
@@ -250,7 +253,7 @@ class InferencePipeline:
         """design loss function and finetune model with weighted loss
         """
         self.model.train()
-        train_state, prediction = train_state.to(self.device), prediction.to(self.device)
+        train_state = train_state.to(self.device)
         reweight_train = reweights_train.to(self.device)
 
         # Calculate loss based on training set
@@ -265,9 +268,9 @@ class InferencePipeline:
         self.optimizer.step()
         self.optimizer.zero_grad()
         
-        return {'loss': loss.item(), 'loss_train': loss_train.item(), 'loss_test': loss_test.item()}
+        return {'loss': loss.item(), 'loss_train': loss_train.item()}
 
-    def backward_finetune_step(self, prediction, state_target):
+    def backward_finetune_step(self, prediction):
         """design loss function and finetune model with backward loss
         """
         self.model.train()
@@ -311,8 +314,7 @@ class InferencePipeline:
         all_prediction = []
         train_metrics = []
         for test_state, idx in self.test_loader:
-            state_target_batch = self.test_targets[idx].to(self.device)
-            if self.config.loss_weights['loss_test'] > 0 or self.config.backward_finetune:
+            if self.config.backward_finetune:
                 prediction = self.inference(test_state, backward=self.config.backward_finetune)
             else:
                 prediction = torch.zeros_like(test_state)
@@ -324,7 +326,7 @@ class InferencePipeline:
                     train_batch, sim_id = next(self.train_loader_iter)
                     batch_loss = self.finetune_step(train_batch, reweights_training[sim_id])
                 else:
-                    batch_loss = self.backward_finetune_step(prediction, state_target_batch)
+                    batch_loss = self.backward_finetune_step(prediction)
                 train_metrics.append(batch_loss)
                 if finetune_step % 100 == 0:
                     logging.info(f"Finetuning step {finetune_step}, loss: {batch_loss['loss']:.4f}")
@@ -381,6 +383,8 @@ class InferencePipeline:
         metrics['return'] = np.mean(episode_rets) / self.config.reward_scale
         metrics['cost'] = np.mean(episode_costs) / self.config.cost_scale
         metrics['length'] = np.mean(episode_lens)
+
+        logging.info(f"Return: {metrics['return']:.4f}, Cost: {metrics['cost']:.4f}, Length: {metrics['length']:.4f}")
 
         # metrics = evaluate_samples(
         #     predictions, 
@@ -501,7 +505,7 @@ class InferencePipeline:
             act = acts.cpu().numpy()
 
             obs_next, reward, terminated, truncated, info = self.env.step(act)
-            if self.cost_reverse:
+            if self.config.cost_reverse:
                 cost = (1.0 - info["cost"]) * self.config.cost_scale
             else:
                 cost = info["cost"] * self.config.cost_scale
@@ -538,34 +542,6 @@ class InferencePipeline:
         # Convert device to string, avoid 'Object of type device is not JSON serializable' 
         config_dict['device'] = str(config_dict['device'])
         config_dict['scaler'] = str(config_dict['scaler'])
-
-#         import traceback
-#         def find_non_serializable(obj):
-#             try:
-#                 json.dumps(obj)
-#                 return None 
-#             except TypeError as e:
-#                 return str(e)
-
-#         def check_dict(d):
-#             for key, value in d.items():
-#                 error = find_non_serializable(value)
-#                 if error:
-#                     print(f"键 '{key}' 的值不可序列化: {error}")
-                    
-#                     if isinstance(value, dict):
-#                         print(f"递归检查键 '{key}' 的内容:")
-#                         check_dict(value)
-#                     elif isinstance(value, list):
-#                         for i, item in enumerate(value):
-#                             item_error = find_non_serializable(item)
-#                             if item_error:
-#                                 print(f"  列表索引 {i} 不可序列化: {item_error}")
-# ·        try:
-#             json.dumps(config_dict)
-#         except TypeError:
-#             print("发现不可序列化的对象，开始检查...")
-#             check_dict(config_dict)
 
         with open(os.path.join(finetune_dir, 'config.json'), 'w') as f:
             json.dump(config_dict, f, indent=2)

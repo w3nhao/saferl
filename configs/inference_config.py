@@ -30,6 +30,7 @@ class InferenceConfig:
     safety_threshold: float = 0
     reward_scale: float = 0.1
     cost_scale: float = 1
+    cost_reverse: bool = False
 
     # evaluation params
     target_returns: Tuple[Tuple[float, ...],
@@ -110,7 +111,6 @@ class InferenceConfig:
         if self.loss_weights is None:
             self.loss_weights = {
                 "loss_train": 1.0,
-                "loss_test": 0.0,
             }
 
         if self.guidance_weights is None:

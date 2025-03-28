@@ -20,7 +20,7 @@ from tqdm.auto import trange  # noqa
 
 from IPython import embed
 
-class SequenceDataset(IterableDataset):
+class SequenceDataset(Dataset):
     """
     A dataset of sequential data.
 
@@ -142,11 +142,11 @@ class SequenceDataset(IterableDataset):
         self.state_channel = self.dataset[0]["observations"].shape[1]
         self.nt_total = self.dataset[0]["observations"].shape[0]
         if self.is_need_idx:
-            sample, _ = self.__prepare_sample(0)
+            sample, _ = self.__getitem__(0)
             self.shape = sample.shape
         else:
-            self.shape = self.__prepare_sample(0).shape
-
+            self.shape = self.__getitem__(0).shape
+        
     def compute_pareto_return(self, cost):
         return self.pareto_frontier(cost)
 
@@ -156,20 +156,15 @@ class SequenceDataset(IterableDataset):
         elif self.split == 'cal': 
             return self.N_cal
 
-    def __prepare_sample(self, traj_idx):
+    def __getitem__(self, traj_idx):
+        traj_idx = traj_idx + len(self.dataset) - self.N_cal if self.split == 'cal' else traj_idx
         traj = self.dataset[traj_idx]
         states = traj["observations"]
         actions = traj["actions"]
         rewards = traj["rewards"]
         costs = traj["costs"]
 
-        # time_steps = np.arange(0, states.shape[0])
-
         # pad up to seq_len if needed
-        # mask = np.hstack(
-        #     [np.ones(states.shape[0]),
-        #      np.zeros(self.pad_to - states.shape[0])])
-
         states = torch.tensor(pad_along_axis(states, pad_to=self.pad_to).reshape(self.pad_to, -1)) # 1024, 72
         actions = torch.tensor(pad_along_axis(actions, pad_to=self.pad_to).reshape(self.pad_to, -1)) # 1024, 2
         rewards = torch.tensor(pad_along_axis(rewards, pad_to=self.pad_to).reshape(self.pad_to, -1)) # 1024, 1
@@ -184,17 +179,6 @@ class SequenceDataset(IterableDataset):
             return returns, traj_idx
         else:
             return returns
-
-
-    def __iter__(self):
-        while True: 
-            if self.split == 'train':
-                traj_idx = np.random.choice(len(self.dataset)-self.N_cal, p=self.sample_prob)
-            elif self.split == 'cal':
-                traj_idx = np.random.choice(range(len(self.dataset)-self.N_cal, len(self.dataset)), p=self.sample_prob)
-            else:
-                raise ValueError("split must be one of ['train', 'cal']")
-            yield self.__prepare_sample(traj_idx)
             
 
 def pad_along_axis(arr: np.ndarray,
