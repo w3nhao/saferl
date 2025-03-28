@@ -40,7 +40,7 @@ class GradientGuidance:
         safe_cost = torch.maximum(
             s + self.Q - self.safety_threshold,
             torch.zeros_like(s)
-        )
+        ).mean(-1)
 
         return self.w_obj * objective + self.w_safe * safe_cost
     
@@ -100,7 +100,7 @@ def calculate_weight(x: torch.Tensor, scaler: torch.Tensor,
     safe_cost = torch.maximum(
         s + Q - safety_threshold,
         torch.zeros_like(s)
-    )
+    ).mean(-1)
 
     loss = w_obj * objective + w_safe * safe_cost
     weight = torch.exp(- loss * guidance_scaler)

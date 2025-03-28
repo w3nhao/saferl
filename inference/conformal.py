@@ -108,7 +108,7 @@ class ConformalCalculator:
             
             s_pred = calculate_safety_score(pred[:,:,:self.config.nt_total])
             s_target = calculate_safety_score(state[:,:,:self.config.nt_total])
-            batch_scores = (s_pred - s_target).abs()
+            batch_scores = (s_pred - s_target).abs().mean(-1)
             conformal_scores.append(batch_scores)
             
         # Concatenate and normalize weights

@@ -148,7 +148,7 @@ class InferencePipeline:
         
         # # Test dataset
         self.test_dataset = []
-        for i in trange(self.config.eval_episodes, desc="Evaluating...", leave=False):
+        for i in range(self.config.eval_episodes):
             obs, info = self.env.reset(seed = i) # state_channel
             self.test_dataset.append(obs)
         self.test_dataset = torch.tensor(np.stack(self.test_dataset)) / self.config.scaler[:obs.shape[-1]].reshape(1, -1)
@@ -279,7 +279,7 @@ class InferencePipeline:
         safe_cost = torch.maximum(
             s + self.Q - self.config.safety_threshold,
             torch.zeros_like(s)
-        )
+        ).mean(-1)
 
         loss = (self.config.guidance_weights['w_obj'] * objective + \
             self.config.guidance_weights['w_safe'] * safe_cost).mean()

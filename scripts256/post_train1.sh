@@ -1,9 +1,10 @@
 # Default values
-EXP_ID="point_push1_256"
+DIM="256"
+EXP_ID="point_push1_${DIM}"
 TASK="OfflinePointPush1Gymnasium-v0"
 TUNING_DIR="${EXP_ID}_finetune"
-GPU_ID=0
-CHECKPOINT=90
+GPU_ID=3
+CHECKPOINT=100
 DDIM_SAMPLING_STEPS=200
 TRAIN_BATCH_SIZE=32
 GUIDANCE_WEIGHTS='{"w_obj": 1.0, "w_safe": 1.0}'
@@ -39,6 +40,7 @@ for ALPHA in "${ALPHA_VALUES[@]}"; do
                         --exp_id "$EXP_ID" \
                         --tuning_dir "$TUNING_DIR" \
                         --tuning_id "$TUNING_ID" \
+                        --dim "$DIM" \
                         --checkpoint "$CHECKPOINT" \
                         --finetune_epoch "$FINETUNE_EPOCH" \
                         --finetune_steps "$FINETUNE_STEPS" \

@@ -37,7 +37,6 @@ def main():
     parser.add_argument('--loss_weights', type=str, default=None, help='JSON string of loss weights')
     parser.add_argument('--guidance_scaler', type=float, default=1.0, help='Guidance scaler')
     parser.add_argument('--train_batch_size', type=int, default=1000, help='Training batch size')
-    parser.add_argument('--cal_batch_size', type=int, default=1000, help='Calibration batch size')
     parser.add_argument('--ddim_sampling_steps', type=int, default=200, help='DDIM sampling steps')
     parser.add_argument('--ddim_eta', type=float, default=1.0, help='DDIM sampling eta')
     args = parser.parse_args()
@@ -57,7 +56,7 @@ def main():
     for attr in ['checkpoint', 'checkpoint_dir', 'wo_post_train', 'post_train_id', 
                 'exp_id', 'tuning_dir', 'tuning_id', 'gpu_id', 'dim', 'finetune_set',
                 'alpha', 'finetune_epoch', 'finetune_steps', 'finetune_lr', 
-                'train_batch_size', 'cal_batch_size', 'ddim_sampling_steps', 'ddim_eta',
+                'train_batch_size', 'ddim_sampling_steps', 'ddim_eta',
                 'use_guidance', 'guidance_scaler', 'backward_finetune']:
         setattr(config, attr, getattr(args, attr))
 
