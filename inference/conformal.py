@@ -31,7 +31,7 @@ class ConformalCalculator:
         self.state = None
         self.idx = None
 
-    def get_conformal_scores(self, dataloader, cal_targets, Q) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_conformal_scores(self, dataloader, Q) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Calculate weighted conformal scores
         
         Args:
@@ -59,7 +59,6 @@ class ConformalCalculator:
             idx = self.idx
             states.append(state)
             state = state.to(self.device)
-            state_target_batch = cal_targets[self.idx].to(self.device)
 
             with torch.no_grad():
                 output = self.model.sample(

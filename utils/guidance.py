@@ -10,7 +10,6 @@ class GradientGuidance:
     
     def __init__(
         self,
-        data: dict,
         scaler: torch.Tensor,
         w_obj: float = 0,
         w_safe: float = 0,
@@ -21,7 +20,6 @@ class GradientGuidance:
         safety_threshold: float = 5.0,
         device: str = 'cuda',
     ):
-        self.data = data
         self.scaler = scaler
         self.w_obj = w_obj
         self.w_safe = w_safe
@@ -65,7 +63,6 @@ class GradientGuidance:
 
 def get_gradient_guidance(
     x: torch.Tensor,
-    data: dict,
     scaler: torch.Tensor,
     w_obj: float = 0,
     w_safe: float = 0,
@@ -77,7 +74,6 @@ def get_gradient_guidance(
 ) -> Callable:
     """Build guidance gradient function"""
     return GradientGuidance(
-        data=data,
         scaler=scaler,
         w_obj=w_obj,
         w_safe=w_safe,

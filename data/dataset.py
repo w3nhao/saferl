@@ -146,12 +146,15 @@ class SequenceDataset(IterableDataset):
             self.shape = sample.shape
         else:
             self.shape = self.__prepare_sample(0).shape
-            
+
     def compute_pareto_return(self, cost):
         return self.pareto_frontier(cost)
 
     def __len__(self):
-        return len(self.dataset)
+        if self.split == 'train':
+            return len(self.dataset) - self.N_cal
+        elif self.split == 'cal': 
+            return self.N_cal
 
     def __prepare_sample(self, traj_idx):
         traj = self.dataset[traj_idx]

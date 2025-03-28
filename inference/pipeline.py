@@ -63,7 +63,7 @@ class InferencePipeline:
                                     min_npb=min_npb)
         
         self.env = env
-        self.max_action = env.action_space.high[0]
+        self.max_action = self.env.action_space.high[0]
         self.setup_data()
         
         # Initialize optimizer
@@ -211,7 +211,6 @@ class InferencePipeline:
     def setup_guidance(self):
         """Setup guidance function for test sampling"""
         self.guidance_fn = lambda x: get_gradient_guidance(x, 
-            data=self.data,
             scaler=self.config.scaler,
             w_obj=self.config.guidance_weights["w_obj"],
             w_safe=self.config.guidance_weights["w_safe"],
@@ -403,7 +402,7 @@ class InferencePipeline:
         logging.info("Starting calibration phase...")
         
         # Get conformal scores
-        scores, weights, states = self.conformal_calculator.get_conformal_scores(self.cal_loader_iter, self.cal_targets, self.Q)
+        scores, weights, states = self.conformal_calculator.get_conformal_scores(self.cal_loader_iter, self.Q)
         
         # Calculate quantile
         quantile = self.conformal_calculator.calculate_quantile(
@@ -536,8 +535,38 @@ class InferencePipeline:
         
         # Save finetune config
         config_dict = self.config.__dict__.copy()
-        # Convert device to string, avoid 'Object of type device is not JSON serializable'
+        # Convert device to string, avoid 'Object of type device is not JSON serializable' 
         config_dict['device'] = str(config_dict['device'])
+        config_dict['scaler'] = str(config_dict['scaler'])
+
+#         import traceback
+#         def find_non_serializable(obj):
+#             try:
+#                 json.dumps(obj)
+#                 return None 
+#             except TypeError as e:
+#                 return str(e)
+
+#         def check_dict(d):
+#             for key, value in d.items():
+#                 error = find_non_serializable(value)
+#                 if error:
+#                     print(f"键 '{key}' 的值不可序列化: {error}")
+                    
+#                     if isinstance(value, dict):
+#                         print(f"递归检查键 '{key}' 的内容:")
+#                         check_dict(value)
+#                     elif isinstance(value, list):
+#                         for i, item in enumerate(value):
+#                             item_error = find_non_serializable(item)
+#                             if item_error:
+#                                 print(f"  列表索引 {i} 不可序列化: {item_error}")
+# ·        try:
+#             json.dumps(config_dict)
+#         except TypeError:
+#             print("发现不可序列化的对象，开始检查...")
+#             check_dict(config_dict)
+
         with open(os.path.join(finetune_dir, 'config.json'), 'w') as f:
             json.dump(config_dict, f, indent=2)
             

@@ -12,6 +12,8 @@ from dsrl.infos import DENSITY_CFG
 from utils.common import set_seed, setup_logging, load_model
 from dsrl.infos import DENSITY_CFG
 
+from IPython import embed
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID to use')
@@ -80,10 +82,8 @@ def main():
     else:
         import gymnasium as gym  # noqa
     env = gym.make(config.task)
-
     data = env.get_dataset()
     env.set_target_cost(config.cost_limit)
-
     cbins, rbins, max_npb, min_npb = None, None, None, None
     if config.density != 1.0:
         density_cfg = DENSITY_CFG[config.task + "_density" + str(config.density)]
