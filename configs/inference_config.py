@@ -27,7 +27,7 @@ class InferenceConfig:
     density: float = 1.0
     nt_total: int = 1000
     pad_size: int = 1024
-    safety_threshold: float = 0
+    safety_threshold: float = 0.01
     reward_scale: float = 0.1
     cost_scale: float = 1
     cost_reverse: bool = False

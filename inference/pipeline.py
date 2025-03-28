@@ -17,7 +17,7 @@ from .utils import get_scheduler
 from utils.guidance import calculate_weight, get_gradient_guidance, normalize_weights
 from utils.metrics import calculate_safety_score
 
-import dsrl
+from dsrl.offline_env import OfflineEnvWrapper, wrap_env  # noqa
 import gymnasium as gym
 
 from IPython import embed
@@ -63,7 +63,15 @@ class InferencePipeline:
                                     max_npb=max_npb,
                                     min_npb=min_npb)
         
+        # setup evaluate env
+        env = wrap_env(
+            env=gym.make(config.task),
+            reward_scale=config.reward_scale,
+        )
+        env = OfflineEnvWrapper(env)
+        env.set_target_cost(config.cost_limit)
         self.env = env
+
         self.max_action = self.env.action_space.high[0]
         self.setup_data()
         
@@ -152,6 +160,7 @@ class InferencePipeline:
         # # Test dataset
         self.test_dataset = []
         for i in range(self.config.eval_episodes):
+            # obs, info = self.env.reset() # state_channel
             obs, info = self.env.reset(seed = i) # state_channel
             self.test_dataset.append(obs)
         self.test_dataset = torch.tensor(np.stack(self.test_dataset)) / self.config.scaler[:obs.shape[-1]].reshape(1, -1)
@@ -380,8 +389,10 @@ class InferencePipeline:
         predictions = torch.cat(all_predictions)
 
         metrics= {} 
-        metrics['return'] = np.mean(episode_rets) / self.config.reward_scale
-        metrics['cost'] = np.mean(episode_costs) / self.config.cost_scale
+        normalized_ret, normalized_cost = env.get_normalized_score(np.mean(episode_rets) / self.config.reward_scale, \
+                                        np.mean(episode_costs) / self.config.cost_scale)
+        metrics['return'] = normalized_ret
+        metrics['cost'] = normalized_cost
         metrics['length'] = np.mean(episode_lens)
 
         logging.info(f"Return: {metrics['return']:.4f}, Cost: {metrics['cost']:.4f}, Length: {metrics['length']:.4f}")
